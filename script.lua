@@ -1,0 +1,215 @@
+loadstring([[local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Window = Rayfield:CreateWindow({
+    Name = "Zayden's Monkey Mod Menu",
+    LoadingTitle = "Zayden's Monkey Mod Menu",
+    LoadingSubtitle = "Triston's a femboy 💅",
+    ConfigurationSaving = {Enabled = true, FolderName = "ZaydenMonkey", FileName = "Config"}
+})
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local LP = Players.LocalPlayer
+
+local speed = 16
+local jump = 50
+local infJump = false
+local flying = false
+local noclipping = false
+local flySpeed = 50
+local flyBV = nil
+local flyConn = nil
+local noclipConn = nil
+local hitboxEnabled = false
+local hitboxSize = 10
+local origSizes = {}
+local adornments = {}
+local hbConn = nil
+local autoTag = false
+local autoConn = nil
+local lastTag = {}
+
+-- Infinite Jump
+UIS.JumpRequest:Connect(function()
+    if infJump and LP.Character and LP.Character:FindFirstChildOfClass("Humanoid") then
+        LP.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+local function updateMovement()
+    local char = LP.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = speed
+        hum.JumpPower = jump
+    end
+end
+
+LP.CharacterAdded:Connect(function() task.wait(0.5) updateMovement() end)
+
+-- FIXED HITBOX ESP (disappears on death, reappears on respawn)
+local function updateHitboxes()
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl == LP then continue end
+        
+        local char = pl.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            -- Cleanup dead/no character
+            if adornments[pl.Name] then adornments[pl.Name]:Destroy() adornments[pl.Name] = nil end
+            if origSizes[pl.Name] then origSizes[pl.Name] = nil end
+            continue
+        end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then
+            -- Player is dead → remove box
+            if adornments[pl.Name] then adornments[pl.Name]:Destroy() adornments[pl.Name] = nil end
+            if origSizes[pl.Name] then origSizes[pl.Name] = nil end
+            continue
+        end
+        
+        -- Player is alive → apply/refresh hitbox
+        local root = char.HumanoidRootPart
+        if not origSizes[pl.Name] then origSizes[pl.Name] = root.Size end
+        root.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+        
+        if not adornments[pl.Name] then
+            local box = Instance.new("BoxHandleAdornment")
+            box.Name = "HitboxVisual"
+            box.Adornee = root
+            box.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+            box.Color3 = Color3.fromRGB(100,100,100)
+            box.Transparency = 0.5
+            box.AlwaysOnTop = true
+            box.ZIndex = 1
+            box.Parent = root
+            adornments[pl.Name] = box
+        else
+            adornments[pl.Name].Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+        end
+    end
+end
+
+local function enableHitbox()
+    if hbConn then return end
+    hbConn = RS.Heartbeat:Connect(updateHitboxes)
+    updateHitboxes()
+end
+
+local function disableHitbox()
+    if hbConn then hbConn:Disconnect() hbConn = nil end
+    for _, box in pairs(adornments) do
+        if box and box.Parent then box:Destroy() end
+    end
+    adornments = {}
+    origSizes = {}
+end
+
+-- Auto Bomb Tag (unchanged)
+local function startAutoTag()
+    if autoConn then return end
+    autoConn = RS.Heartbeat:Connect(function()
+        if not autoTag then return end
+        local char = LP.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        local root = char.HumanoidRootPart
+        local hasBomb = char:FindFirstChild("Bomb") or (char:FindFirstChild("Head") and char.Head:FindFirstChild("Bomb"))
+        if not hasBomb then return end
+        local now = tick()
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= LP and pl.Character then
+                local tRoot = pl.Character:FindFirstChild("HumanoidRootPart")
+                if tRoot then
+                    local dist = (root.Position - tRoot.Position).Magnitude
+                    if dist < (hitboxSize + 8) then
+                        if not lastTag[pl] or now - lastTag[pl] > 0.35 then
+                            firetouchinterest(hasBomb, tRoot, 0)
+                            firetouchinterest(hasBomb, tRoot, 1)
+                            lastTag[pl] = now
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopAutoTag()
+    if autoConn then autoConn:Disconnect() autoConn = nil end
+    lastTag = {}
+end
+
+-- Fly, Noclip, etc. (unchanged)
+local function startFly() -- ... (same as before)
+    if flying then return end
+    flying = true
+    local char = LP.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then flying = false return end
+    local root = char.HumanoidRootPart
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.MaxForce = Vector3.new(400000,400000,400000)
+    flyBV.Velocity = Vector3.new(0,0,0)
+    flyBV.Parent = root
+    flyConn = RS.RenderStepped:Connect(function()
+        if not flying or not root or not flyBV then return end
+        local cam = workspace.CurrentCamera
+        local dir = Vector3.new(0,0,0)
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir += cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir += cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0,1,0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.new(0,1,0) end
+        local mag = dir.Magnitude
+        if mag > 0 then flyBV.Velocity = (dir / mag) * flySpeed else flyBV.Velocity = Vector3.new(0,0,0) end
+    end)
+end
+
+local function stopFly()
+    if not flying then return end
+    flying = false
+    if flyConn then flyConn:Disconnect() end
+    if flyBV then flyBV:Destroy() end
+end
+
+local function startNoclip()
+    if noclipping then return end
+    noclipping = true
+    noclipConn = RS.Stepped:Connect(function()
+        if not noclipping then return end
+        local char = LP.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+            end
+        end
+    end)
+end
+
+local function stopNoclip()
+    if not noclipping then return end
+    noclipping = false
+    if noclipConn then noclipConn:Disconnect() end
+end
+
+-- UI
+local MoveTab = Window:CreateTab("🐒 Movement", 6023426923)
+MoveTab:CreateSlider({Name = "WalkSpeed", Range = {16,500}, Increment = 1, CurrentValue = 16, Callback = function(v) speed = v updateMovement() end})
+MoveTab:CreateSlider({Name = "JumpPower", Range = {50,500}, Increment = 1, CurrentValue = 50, Callback = function(v) jump = v updateMovement() end})
+MoveTab:CreateToggle({Name = "Infinite Jump", CurrentValue = false, Callback = function(v) infJump = v end})
+MoveTab:CreateToggle({Name = "Enable Fly", CurrentValue = false, Callback = function(v) if v then startFly() else stopFly() end end})
+MoveTab:CreateSlider({Name = "Fly Speed", Range = {10,200}, Increment = 1, CurrentValue = 50, Callback = function(v) flySpeed = v end})
+MoveTab:CreateToggle({Name = "Noclip", CurrentValue = false, Callback = function(v) if v then startNoclip() else stopNoclip() end end})
+
+local ExtraTab = Window:CreateTab("💥 Extras", 6026568198)
+ExtraTab:CreateButton({Name = "Super Monkey Mode", Callback = function() speed = 250 jump = 350 infJump = true updateMovement() Rayfield:Notify({Title = "🐵 SUPER MONKEY", Content = "untouchable fr", Duration = 6}) end})
+ExtraTab:CreateToggle({Name = "Hitbox Expander", CurrentValue = false, Callback = function(v) hitboxEnabled = v if v then enableHitbox() else disableHitbox() end end})
+ExtraTab:CreateSlider({Name = "Hitbox Size", Range = {1,50}, Increment = 1, CurrentValue = 10, Callback = function(v) hitboxSize = v if hitboxEnabled then updateHitboxes() end end})
+ExtraTab:CreateToggle({Name = "Auto Tag (Bomb)", CurrentValue = false, Callback = function(v) autoTag = v if v then startAutoTag() else stopAutoTag() end end})
+ExtraTab:CreateButton({Name = "Reset Character", Callback = function() if LP.Character then LP.Character:BreakJoints() end end})
+ExtraTab:CreateButton({Name = "Rejoin", Callback = function() game:GetService("TeleportService"):Teleport(game.PlaceId, LP) end})
+
+if LP.Character then task.wait(0.5) updateMovement() end
+Rayfield:Notify({Title = "✅ Loaded!", Content = "Hitbox now hides on death", Duration = 8})
+]])()
